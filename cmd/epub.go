@@ -196,12 +196,11 @@ func epubRun(cmd *cobra.Command, args []string) {
 			imgPathEpub, _ := ebk.AddImage(imgPath, "")
 			rlink, _ := url.Parse(imgUrl)
 			body = strings.ReplaceAll(body, rlink.Path, imgPathEpub)
-			fmt.Println(imgPathEpub)
+			if i == 0 {
+				ebk.SetCover(imgPathEpub, "")
+			}
 		}
 		ebk.AddSection(body, cht.Title, "", "")
-		if i == 3 {
-			break
-		}
 	}
 	err = ebk.Write(bookID + ".epub")
 	cobra.CheckErr(err)
