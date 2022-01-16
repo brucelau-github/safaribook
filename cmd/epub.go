@@ -7,7 +7,12 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bmaupin/go-epub"
@@ -61,6 +66,18 @@ func (cli *oreillyClient) doGetFile(url string, header *http.Header, w io.Writer
 	}
 	_, err = io.Copy(w, resp.Body)
 	cobra.CheckErr(err)
+}
+
+func (cli *oreillyClient) doGetImage(imgUrl string, header *http.Header) string {
+	link, _ := url.Parse(imgUrl)
+	_, fileName := filepath.Split(link.Path)
+	body := bytes.Buffer{}
+	cli.doGetFile(imgUrl, header, &body)
+	targetPath := filepath.Join(os.TempDir(), fileName)
+	f, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE, 0755)
+	cobra.CheckErr(err)
+	io.Copy(f, &body)
+	return targetPath
 }
 
 func newOreillyCilent() *oreillyClient {
@@ -163,16 +180,32 @@ func epubRun(cmd *cobra.Command, args []string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "total chapters: %d\n", len(chapters.Results))
 	ebk := epub.NewEpub(bk.Title)
 	ebk.SetDescription(bk.Descriptions.Text)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	imageCaches := []string{}
 	for i, cht := range chapters.Results {
 		time.Sleep(1 * time.Second)
-		body := bytes.Buffer{}
-		webCli.doGetFile(cht.ContentURL, header, &body)
-		ebk.AddSection(body.String(), cht.Title, "", "")
+		buf := bytes.Buffer{}
+		webCli.doGetFile(cht.ContentURL, header, &buf)
+		body := buf.String()
+		for _, imgUrl := range cht.RelatedAssets.Images {
+			imgPath := webCli.doGetImage(imgUrl, header)
+			imageCaches = append(imageCaches, imgPath)
+			imgPathEpub, _ := ebk.AddImage(imgPath, "")
+			rlink, _ := url.Parse(imgUrl)
+			body = strings.ReplaceAll(body, rlink.Path, imgPathEpub)
+			fmt.Println(imgPathEpub)
+		}
+		ebk.AddSection(body, cht.Title, "", "")
 		if i == 3 {
 			break
 		}
 	}
 	err = ebk.Write(bookID + ".epub")
 	cobra.CheckErr(err)
+	for _, img := range imageCaches {
+		os.Remove(img)
+	}
 }
