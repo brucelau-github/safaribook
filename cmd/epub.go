@@ -96,25 +96,42 @@ func newOreillyCilent() *oreillyClient {
 }
 
 func epubRun1(cmd *cobra.Command, args []string) {
-	chapters := struct {
-		Count   int
-		Results []struct {
-			Title         string
-			ContentURL    string `json:"content_url"`
-			RelatedAssets struct {
-				Images []string
-			} `json:"related_assets"`
-		}
-	}{}
-	data, err := ioutil.ReadFile("tmp.json")
+	cookie, err := ioutil.ReadFile(cookieFile)
 	if err != nil {
-		panic(err)
+		cobra.CheckErr(fmt.Errorf("Fail to open cookie file %s, %q", cookieFile, err))
 	}
 
-	if err := json.Unmarshal(data, &chapters); err != nil {
-		panic("unmarshal code.json: " + err.Error())
+	header := &http.Header{
+		// "Accept":          {"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+		// "Accept-Language": {"en-US,en;q=0.5"},
+		// "Connection":      {"keep-alive"},
+		// "Host":            {"learning.oreilly.com"},
+		// "User-Agent":      {"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:59.0) Gecko/20100101 Firefox/59.0"},
+		// "Cookie":          {string(bytes.TrimSpace(cookie))},
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), chapters)
+	header.Set("Cookie", string(bytes.TrimSpace(cookie)))
+	webCli := newOreillyCilent()
+	req, err := http.NewRequest("GET", "https://learning.oreilly.com/api/v2/epubs/urn:orm:book:9780134686097/files/ch1.xhtml", nil)
+	// for _, line := range strings.Split(string(bytes.TrimSpace(cookie)), ";") {
+	// 	sect := strings.Split(strings.TrimSpace(line), "=")
+	// 	req.AddCookie(&http.Cookie{Name: sect[0], Value: sect[1]})
+	// }
+	req.Header.Set("Cookie", string(bytes.TrimSpace(cookie)))
+	cobra.CheckErr(err)
+	// req.Header = *header
+	resp, err := webCli.Do(req)
+	fmt.Println(len(req.Header.Get("Cookie")))
+	cobra.CheckErr(err)
+	defer resp.Body.Close()
+	// if resp.StatusCode != 200 {
+	msg := bytes.Buffer{}
+	msg.ReadFrom(resp.Body)
+	fmt.Println(msg.String())
+	// 	cobra.CheckErr(fmt.Errorf("Request Failed %s: status %d, body %q", url, resp.StatusCode, msg.String()))
+	// }
+	// dec := json.NewDecoder(resp.Body)
+	// err = dec.Decode(target)
+	// cobra.CheckErr(err)
 }
 
 func epubRun2(cmd *cobra.Command, args []string) {
