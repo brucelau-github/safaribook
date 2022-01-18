@@ -20,6 +20,7 @@ import (
 )
 
 var cookieFile string
+var wait int
 var epubCmd = &cobra.Command{
 	Use:   "epub command",
 	Short: "convert html to epub",
@@ -29,6 +30,7 @@ var epubCmd = &cobra.Command{
 
 func init() {
 	epubCmd.Flags().StringVarP(&cookieFile, "cookie", "k", "~/.safaricookie", "oreilly website cookie, read from ~/.safaricookie by default")
+	epubCmd.Flags().IntVarP(&wait, "wait", "w", -1, "sleep time between each request")
 }
 
 type oreillyClient struct {
@@ -203,7 +205,9 @@ func epubRun(cmd *cobra.Command, args []string) {
 
 	imageCaches := []string{}
 	for i, cht := range chapters.Results {
-		time.Sleep(1 * time.Second)
+		if wait > 0 {
+			time.Sleep(time.Duration(wait) * time.Second)
+		}
 		buf := bytes.Buffer{}
 		webCli.doGetFile(cht.ContentURL, header, &buf)
 		body := buf.String()
