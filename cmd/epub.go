@@ -29,7 +29,7 @@ var epubCmd = &cobra.Command{
 }
 
 func init() {
-	epubCmd.Flags().StringVarP(&cookieFile, "cookie", "k", "~/.safaricookie", "oreilly website cookie, read from ~/.safaricookie by default")
+	epubCmd.Flags().StringVarP(&cookieFile, "cookie", "k", "~/.zeenrc", "oreilly website cookie, read from ~/.zeenrc by default")
 	epubCmd.Flags().IntVarP(&wait, "wait", "w", -1, "sleep time between each request")
 }
 
@@ -70,16 +70,30 @@ func (cli *oreillyClient) doGetFile(url string, header *http.Header, w io.Writer
 	cobra.CheckErr(err)
 }
 
-func (cli *oreillyClient) doGetImage(imgUrl string, header *http.Header) string {
-	link, _ := url.Parse(imgUrl)
+func (cli *oreillyClient) doGetImage(imgURL string, header *http.Header) string {
+	link, _ := url.Parse(imgURL)
 	_, fileName := filepath.Split(link.Path)
 	body := bytes.Buffer{}
-	cli.doGetFile(imgUrl, header, &body)
+	cli.doGetFile(imgURL, header, &body)
 	targetPath := filepath.Join(os.TempDir(), fileName)
 	f, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE, 0755)
 	cobra.CheckErr(err)
 	io.Copy(f, &body)
 	return targetPath
+}
+
+func (cli *oreillyClient) login(header *http.Header) {
+	req, err := http.NewRequest("GET", "https://api.oreilly.com/api/v2/me", nil)
+	cobra.CheckErr(err)
+	req.Header = *header
+	resp, err := cli.Do(req)
+	cobra.CheckErr(err)
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		msg := bytes.Buffer{}
+		msg.ReadFrom(resp.Body)
+		cobra.CheckErr(fmt.Errorf("Request Failed %s: status %d, body %q", "test", resp.StatusCode, msg.String()))
+	}
 }
 
 func newOreillyCilent() *oreillyClient {
@@ -136,25 +150,6 @@ func epubRun1(cmd *cobra.Command, args []string) {
 	// cobra.CheckErr(err)
 }
 
-func epubRun2(cmd *cobra.Command, args []string) {
-	bk := struct {
-		Chapters     string
-		Title        string
-		ISBN         string
-		Descriptions struct {
-			Text string `json:"text/plain"`
-		}
-	}{}
-	data, err := ioutil.ReadFile("tmp2.json")
-	if err != nil {
-		panic(err)
-	}
-
-	if err := json.Unmarshal(data, &bk); err != nil {
-		panic("unmarshal code.json: " + err.Error())
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), bk)
-}
 func epubRun(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
 		cobra.CheckErr(fmt.Errorf("epub needs a bookid for the command"))
@@ -166,15 +161,27 @@ func epubRun(cmd *cobra.Command, args []string) {
 		cobra.CheckErr(fmt.Errorf("Fail to open cookie file %s, %q", cookieFile, err))
 	}
 
-	header := &http.Header{
-		"Accept":          {"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
-		"Accept-Language": {"en-US,en;q=0.5"},
-		"Connection":      {"keep-alive"},
-		"Host":            {"learning.oreilly.com"},
-		"User-Agent":      {"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:59.0) Gecko/20100101 Firefox/59.0"},
-		"Cookie":          {string(bytes.TrimSpace(cookie))},
+	header := &http.Header{}
+
+	buf := bytes.NewBuffer(cookie)
+	for {
+		line, err := buf.ReadString('\n')
+		if err != nil {
+			break
+		}
+		hdr := strings.Split(strings.TrimSpace(line), ":")
+		if len(hdr) != 2 {
+			continue
+		}
+		header.Set(hdr[0], hdr[1])
 	}
+
 	webCli := newOreillyCilent()
+	if bear := header.Get("Authorization"); bear != "" {
+		webCli.login(header)
+		header.Del("Authorization")
+	}
+
 	bk := struct {
 		Chapters     string
 		Title        string
@@ -211,11 +218,11 @@ func epubRun(cmd *cobra.Command, args []string) {
 		buf := bytes.Buffer{}
 		webCli.doGetFile(cht.ContentURL, header, &buf)
 		body := buf.String()
-		for _, imgUrl := range cht.RelatedAssets.Images {
-			imgPath := webCli.doGetImage(imgUrl, header)
+		for _, imgURL := range cht.RelatedAssets.Images {
+			imgPath := webCli.doGetImage(imgURL, header)
 			imageCaches = append(imageCaches, imgPath)
 			imgPathEpub, _ := ebk.AddImage(imgPath, "")
-			rlink, _ := url.Parse(imgUrl)
+			rlink, _ := url.Parse(imgURL)
 			body = strings.ReplaceAll(body, rlink.Path, imgPathEpub)
 			if i == 0 {
 				ebk.SetCover(imgPathEpub, "")
