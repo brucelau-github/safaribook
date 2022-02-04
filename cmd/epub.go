@@ -196,19 +196,31 @@ func epubRun(cmd *cobra.Command, args []string) {
 	}{}
 	webCli.doGet("https://learning.oreilly.com/api/v2/epubs/urn:orm:book:"+bookID, header, &bk)
 	fmt.Fprintf(cmd.OutOrStdout(), "found a book Title: %q\n", bk.Title)
-	chapters := struct {
-		Count   int
-		Results []struct {
-			Title         string
-			ContentURL    string `json:"content_url"`
-			RelatedAssets struct {
-				Images []string
-			} `json:"related_assets"`
-		}
-	}{}
-	webCli.doGet(bk.Chapters, header, &chapters)
+	type chapter struct {
+		Title         string
+		ContentURL    string `json:"content_url"`
+		RelatedAssets struct {
+			Images []string
+		} `json:"related_assets"`
+	}
+	chapters := []chapter{}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "total chapters: %d\n", len(chapters.Results))
+	type chapterIndex struct {
+		Count   int
+		Next    string
+		Results []chapter
+	}
+	chptIndex := chapterIndex{}
+	webCli.doGet(bk.Chapters, header, &chptIndex)
+	chapters = append(chapters, chptIndex.Results...)
+	for chptIndex.Next != "" {
+		nextIndex := chapterIndex{}
+		webCli.doGet(chptIndex.Next, header, &nextIndex)
+		chapters = append(chapters, nextIndex.Results...)
+		chptIndex = nextIndex
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "total chapters: %d\n", len(chapters))
 	ebk := epub.NewEpub(bk.Title)
 	ebk.SetDescription(bk.Descriptions.Text)
 	if err != nil {
@@ -216,7 +228,7 @@ func epubRun(cmd *cobra.Command, args []string) {
 	}
 
 	imageCaches := []string{}
-	for i, cht := range chapters.Results {
+	for i, cht := range chapters {
 		fmt.Fprintf(cmd.OutOrStdout(), "process chapter %d: %s %s\n", i, cht.Title, cht.ContentURL)
 		if wait > 0 {
 			time.Sleep(time.Duration(wait) * time.Second)
