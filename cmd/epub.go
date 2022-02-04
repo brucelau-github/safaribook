@@ -155,6 +155,10 @@ func epubRun(cmd *cobra.Command, args []string) {
 		cobra.CheckErr(fmt.Errorf("epub needs a bookid for the command"))
 	}
 	bookID := args[0]
+	if strings.HasPrefix(cookieFile, "~/") {
+		homeDir, _ := os.UserHomeDir()
+		cookieFile = filepath.Join(homeDir, cookieFile[2:])
+	}
 
 	cookie, err := ioutil.ReadFile(cookieFile)
 	if err != nil {
@@ -169,11 +173,11 @@ func epubRun(cmd *cobra.Command, args []string) {
 		if err != nil {
 			break
 		}
-		hdr := strings.Split(strings.TrimSpace(line), ":")
+		hdr := strings.SplitN(strings.TrimSpace(line), ":", 2)
 		if len(hdr) != 2 {
 			continue
 		}
-		header.Set(hdr[0], hdr[1])
+		header.Set(strings.TrimSpace(hdr[0]), strings.TrimSpace(hdr[1]))
 	}
 
 	webCli := newOreillyCilent()
@@ -203,6 +207,7 @@ func epubRun(cmd *cobra.Command, args []string) {
 		}
 	}{}
 	webCli.doGet(bk.Chapters, header, &chapters)
+
 	fmt.Fprintf(cmd.OutOrStdout(), "total chapters: %d\n", len(chapters.Results))
 	ebk := epub.NewEpub(bk.Title)
 	ebk.SetDescription(bk.Descriptions.Text)
@@ -212,6 +217,7 @@ func epubRun(cmd *cobra.Command, args []string) {
 
 	imageCaches := []string{}
 	for i, cht := range chapters.Results {
+		fmt.Fprintf(cmd.OutOrStdout(), "process chapter %d: %s %s\n", i, cht.Title, cht.ContentURL)
 		if wait > 0 {
 			time.Sleep(time.Duration(wait) * time.Second)
 		}
