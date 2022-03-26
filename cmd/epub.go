@@ -240,8 +240,9 @@ func epubRun(cmd *cobra.Command, args []string) {
 	}
 
 	imageCaches := []string{}
+	totalChapters := len(chapters)
 	for i, cht := range chapters {
-		fmt.Fprintf(cmd.OutOrStdout(), "process chapter %d: %s %s\n", i, cht.Title, cht.ContentURL)
+		fmt.Fprintf(cmd.OutOrStdout(), "process chapter %d/%d: %q -> %q\n", i+1, totalChapters, cht.Title, cht.ContentURL)
 		if wait > 0 {
 			time.Sleep(time.Duration(wait) * time.Second)
 		}
