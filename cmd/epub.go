@@ -20,7 +20,7 @@ import (
 )
 
 var cookieFile string
-var wait int
+var wait, retry int
 var epubCmd = &cobra.Command{
 	Use:   "epub command",
 	Short: "convert html to epub",
@@ -31,24 +31,20 @@ var epubCmd = &cobra.Command{
 func init() {
 	epubCmd.Flags().StringVarP(&cookieFile, "cookie", "k", "~/.zeenrc", "oreilly website cookie, read from ~/.zeenrc by default")
 	epubCmd.Flags().IntVarP(&wait, "wait", "w", -1, "sleep time between each request")
+	epubCmd.Flags().IntVarP(&retry, "retry", "t", 3, "times of retry before abort the connection")
 }
 
 type oreillyClient struct {
 	http.Client
+	timesOfAttempt int
 }
 
 func (cli *oreillyClient) doGet(url string, header *http.Header, target interface{}) {
 	req, err := http.NewRequest("GET", url, nil)
 	cobra.CheckErr(err)
 	req.Header = *header
-	resp, err := cli.Do(req)
-	cobra.CheckErr(err)
+	resp := cli.doRequestWithAttempts(req)
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		msg := bytes.Buffer{}
-		msg.ReadFrom(resp.Body)
-		cobra.CheckErr(fmt.Errorf("Request Failed %s: status %d, body %q", url, resp.StatusCode, msg.String()))
-	}
 	dec := json.NewDecoder(resp.Body)
 	err = dec.Decode(target)
 	cobra.CheckErr(err)
@@ -58,14 +54,9 @@ func (cli *oreillyClient) doGetFile(url string, header *http.Header, w io.Writer
 	req, err := http.NewRequest("GET", url, nil)
 	cobra.CheckErr(err)
 	req.Header = *header
-	resp, err := cli.Do(req)
+	resp := cli.doRequestWithAttempts(req)
 	cobra.CheckErr(err)
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		msg := bytes.Buffer{}
-		msg.ReadFrom(resp.Body)
-		cobra.CheckErr(fmt.Errorf("Request Failed %s: status %d, body %q", url, resp.StatusCode, msg.String()))
-	}
 	_, err = io.Copy(w, resp.Body)
 	cobra.CheckErr(err)
 }
@@ -86,14 +77,30 @@ func (cli *oreillyClient) login(header *http.Header) {
 	req, err := http.NewRequest("GET", "https://api.oreilly.com/api/v2/me", nil)
 	cobra.CheckErr(err)
 	req.Header = *header
-	resp, err := cli.Do(req)
-	cobra.CheckErr(err)
+	resp := cli.doRequestWithAttempts(req)
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		msg := bytes.Buffer{}
-		msg.ReadFrom(resp.Body)
-		cobra.CheckErr(fmt.Errorf("Request Failed %s: status %d, body %q", "test", resp.StatusCode, msg.String()))
+}
+
+func (cli *oreillyClient) doRequestWithAttempts(req *http.Request) *http.Response {
+	var resp *http.Response
+	var err error
+	for i := 0; i < cli.timesOfAttempt; i++ {
+		resp, err = cli.Do(req)
+		if err == nil && resp.StatusCode == 200 {
+			return resp
+		}
+		time.Sleep(time.Duration(i) * time.Second)
+		fmt.Fprintf(os.Stdout, "attempt to get %s; failed: %d/%d\n", req.URL.String(), i+1, cli.timesOfAttempt)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "error %q\n", err)
+		} else {
+			msg := bytes.Buffer{}
+			msg.ReadFrom(resp.Body)
+			fmt.Fprintf(os.Stdout, "detail response body: %q\n", msg.String())
+		}
 	}
+	cobra.CheckErr(fmt.Errorf("Request Failed %s", req.URL.String()))
+	return nil
 }
 
 func newOreillyCilent() *oreillyClient {
@@ -108,6 +115,7 @@ func newOreillyCilent() *oreillyClient {
 				DisableCompression: true,
 			},
 		},
+		timesOfAttempt: 3,
 	}
 }
 
@@ -135,7 +143,7 @@ func epubRun1(cmd *cobra.Command, args []string) {
 	req.Header.Set("Cookie", string(bytes.TrimSpace(cookie)))
 	cobra.CheckErr(err)
 	// req.Header = *header
-	resp, err := webCli.Do(req)
+	resp := webCli.doRequestWithAttempts(req)
 	fmt.Println(len(req.Header.Get("Cookie")))
 	cobra.CheckErr(err)
 	defer resp.Body.Close()
@@ -181,6 +189,10 @@ func epubRun(cmd *cobra.Command, args []string) {
 	}
 
 	webCli := newOreillyCilent()
+	if retry >= 1 {
+		webCli.timesOfAttempt = retry
+	}
+
 	if bear := header.Get("Authorization"); bear != "" {
 		webCli.login(header)
 		header.Del("Authorization")
