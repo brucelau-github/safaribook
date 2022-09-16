@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,11 @@ var epubCmd = &cobra.Command{
 	Short: "convert html to epub",
 	Long:  "convert html to epub",
 	Run:   epubRun,
+}
+
+type readerAndCloser struct {
+	io.Reader
+	io.Closer
 }
 
 func init() {
@@ -87,6 +93,15 @@ func (cli *oreillyClient) doRequestWithAttempts(req *http.Request) *http.Respons
 	for i := 0; i < cli.timesOfAttempt; i++ {
 		resp, err = cli.Do(req)
 		if err == nil && resp.StatusCode == 200 {
+			if h := resp.Header.Get("ETag"); strings.HasSuffix(h, "-sample") {
+				cobra.CheckErr(fmt.Errorf("Sample Response - Request Failed %s", req.URL.String()))
+				return nil
+			}
+			if h := resp.Header.Get("Content-Encoding"); strings.Contains(h, "gzip") {
+				gzReader, err := gzip.NewReader(resp.Body)
+				cobra.CheckErr(err)
+				resp.Body = &readerAndCloser{gzReader, resp.Body}
+			}
 			return resp
 		}
 		time.Sleep(time.Duration(i) * time.Second)
