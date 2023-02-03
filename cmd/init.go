@@ -16,4 +16,5 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().StringP("cookie", "k", "~/.safaricookie", "safari cookie field after login its website")
 	rootCmd.AddCommand(epubCmd)
+	rootCmd.AddCommand(fileServerCmd)
 }
