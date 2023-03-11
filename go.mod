@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/bmaupin/go-epub v0.11.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.3.0
 	golang.org/x/net v0.0.0-20220114011407-0dd24b26b47d
 )
